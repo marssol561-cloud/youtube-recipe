@@ -149,6 +149,11 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
     base_result["source_method"] = source_method
 
     # ── AI 레시피 추출 (1·2·3차 결과 사용) ──────────────────────────────
+    # 진단 로그: 자막 텍스트 앞 200자로 이 단계에서 이미 깨짐이 있는지 확인
+    logger.debug(
+        "[Pipeline] 영상 %s: 자막 텍스트 앞 200자 (source=%s): %r",
+        video_id, source_method, (transcript_text or "")[:200],
+    )
     logger.info(
         "[Pipeline] 영상 %s: Claude 레시피 추출 | source=%s", video_id, source_method
     )
@@ -176,10 +181,10 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
             dish_name=dish_name,
             video_id=video_id,
         )
-        # 보충 성공 시 source_method 갱신
+        # source_method는 최초 텍스트 확보 방법을 기록하는 필드이므로
+        # 웹 검색 보충 성공 여부와 관계없이 변경하지 않는다
         if not recipe.get("incomplete_ingredients"):
-            base_result["source_method"] = "search"
-            logger.info("[Pipeline] 영상 %s: 웹 검색 보충 완료 → source_method=search", video_id)
+            logger.info("[Pipeline] 영상 %s: 웹 검색 보충 완료 (분량 보충됨) | source_method=%s 유지", video_id, base_result["source_method"])
         else:
             logger.info("[Pipeline] 영상 %s: 웹 검색 보충 후에도 incomplete 유지", video_id)
     else:

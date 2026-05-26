@@ -241,7 +241,15 @@ def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
                 _time.sleep(wait_s)
                 continue
             resp.raise_for_status()
+            # YouTube 자막 응답은 항상 UTF-8이나 requests가 Content-Type 헤더 기반으로
+            # 잘못된 인코딩(예: ISO-8859-1)을 추론할 수 있음 → 명시적으로 UTF-8 강제
+            resp.encoding = "utf-8"
             content = resp.text
+            logger.debug(
+                "[transcript_ytdlp] 자막 원문 앞 200자 (인코딩=%s): %r",
+                resp.encoding,
+                content[:200] if content else "",
+            )
             break
         except Exception as exc:
             logger.warning(
