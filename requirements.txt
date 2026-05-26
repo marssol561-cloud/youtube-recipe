@@ -1,6 +1,7 @@
 # youtube-recipe 백엔드 의존성
-# pyproject.toml 기반, pip freeze로 버전 고정
+# pyproject.toml 기반
 # 생성: 2026-05-26
+# 주의: supabase==2.4.6은 httpx<0.28 요구 → httpx 별도 고정 제거 (supabase가 해결)
 
 fastapi==0.136.3
 uvicorn[standard]==0.48.0
@@ -11,5 +12,4 @@ groq==1.2.0
 yt-dlp==2026.3.17
 duckduckgo-search==8.1.1
 python-dotenv==1.2.2
-httpx==0.28.1
 pydantic==2.13.4
