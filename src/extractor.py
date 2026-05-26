@@ -33,6 +33,9 @@ _SYSTEM_PROMPT = """\
 당신은 유튜브 요리 영상에서 레시피를 추출하는 전문가입니다.
 영상 제목, 설명, 자막(또는 설명만)을 분석하여 정확한 레시피 정보를 JSON으로 반환합니다.
 
+기본 추출 우선순위: 재료(분량 포함) > 조리법 > 팁·비법 > 플레이팅.
+사용자 맥락이 제공되면 맥락에 따라 우선순위를 조정하고, 맥락에서 요구하는 부가 정보를 extra_info 객체에 담아 반환하라.
+
 반드시 아래 JSON 스키마를 정확히 따르세요. JSON 외 다른 텍스트는 출력하지 마세요:
 
 {
@@ -45,7 +48,8 @@ _SYSTEM_PROMPT = """\
   ],
   "plating": "플레이팅 설명 또는 null (언급이 없으면 반드시 null)",
   "tips": ["팁1", "팁2"],
-  "incomplete_ingredients": false
+  "incomplete_ingredients": false,
+  "extra_info": null
 }
 
 규칙:
@@ -55,6 +59,7 @@ _SYSTEM_PROMPT = """\
 - plating: 자막/설명에 플레이팅(담기, 모양, 장식) 언급이 있을 때만 채움. 없으면 반드시 null
 - tips: 비법, 포인트, 주의사항 등. 없으면 빈 배열 []
 - incomplete_ingredients: 재료 분량이 전반적으로 불완전(누락 다수, "적당량"만 반복)이면 true, 아니면 false
+- extra_info: 사용자 맥락이 없으면 반드시 null. 사용자 맥락이 있으면 맥락에서 요구하는 부가 정보를 key-value 객체로 반환. key 이름은 맥락에 맞게 자율 생성 (예: {"중식_기법": "...", "대체_불가_재료": ["..."]})
 """
 
 
@@ -63,6 +68,7 @@ def extract_recipe(
     description: str,
     transcript_text: str | None,
     video_id: str = "",
+    context: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Claude API를 사용해 영상 정보에서 레시피를 추출한다.
@@ -72,11 +78,12 @@ def extract_recipe(
         description: 영상 설명 (YouTube description)
         transcript_text: 자막 텍스트 (None이면 description만 사용)
         video_id: 로깅용 영상 ID
+        context: 사용자 특이사항 (채널 성격, 추출 방향 등). None이면 기본 추출
 
     Returns:
         레시피 딕셔너리 또는 None (추출 실패)
     """
-    user_content = _build_user_content(title, description, transcript_text)
+    user_content = _build_user_content(title, description, transcript_text, context)
     client = _get_client()
 
     for attempt in range(1, _MAX_RETRIES + 1):
@@ -125,7 +132,12 @@ def _get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=api_key)
 
 
-def _build_user_content(title: str, description: str, transcript_text: str | None) -> str:
+def _build_user_content(
+    title: str,
+    description: str,
+    transcript_text: str | None,
+    context: str | None = None,
+) -> str:
     """Claude에게 전달할 사용자 메시지를 조립한다."""
     parts = [f"[영상 제목]\n{title}"]
 
@@ -140,6 +152,9 @@ def _build_user_content(title: str, description: str, transcript_text: str | Non
         parts.append(f"[자막 텍스트]\n{trans}")
     else:
         parts.append("[자막 텍스트]\n(자막 없음 — 영상 설명에서만 추출하세요)")
+
+    if context:
+        parts.append(f"[사용자 맥락]\n{context}")
 
     parts.append("\n위 정보를 분석하여 레시피 JSON을 반환하세요.")
     return "\n\n".join(parts)

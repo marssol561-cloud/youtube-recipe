@@ -23,13 +23,17 @@ from .youtube_client import YouTubeClient
 logger = logging.getLogger(__name__)
 
 
-def run_pipeline(video_ids: list[str]) -> list[dict[str, Any]]:
+def run_pipeline(
+    video_ids: list[str],
+    context: str | None = None,
+) -> list[dict[str, Any]]:
     """
     영상 ID 리스트를 받아 레시피 추출 결과를 반환한다.
     DB 저장은 호출하는 쪽(API 엔드포인트)에서 담당한다.
 
     Args:
         video_ids: 필터링 완료된 유튜브 영상 ID 리스트
+        context: 사용자 특이사항 (채널 성격, 추출 방향 등). None이면 기본 추출
 
     Returns:
         [
@@ -40,7 +44,7 @@ def run_pipeline(video_ids: list[str]) -> list[dict[str, Any]]:
                 "channel_name": str,
                 "source_method": "subtitle"|"stt"|"description"|"search",
                 "needs_stt": bool,
-                "recipe": {dish_name, ingredients, steps, plating, tips, incomplete_ingredients},
+                "recipe": {dish_name, ingredients, steps, plating, tips, incomplete_ingredients, extra_info},
                 "error": str | None,
             },
             ...
@@ -63,7 +67,7 @@ def run_pipeline(video_ids: list[str]) -> list[dict[str, Any]]:
             results.append(_error_result(vid, "메타데이터 조회 실패"))
             continue
 
-        result = _process_video(meta)
+        result = _process_video(meta, context=context)
         results.append(result)
 
     logger.info(
@@ -79,7 +83,7 @@ def run_pipeline(video_ids: list[str]) -> list[dict[str, Any]]:
 # 단일 영상 처리
 # ---------------------------------------------------------------------------
 
-def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
+def _process_video(meta: dict[str, Any], context: str | None = None) -> dict[str, Any]:
     """
     5단 순차 파이프라인으로 단일 영상을 처리한다.
 
@@ -162,6 +166,7 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
         description=description,
         transcript_text=transcript_text,
         video_id=video_id,
+        context=context,
     )
 
     if recipe is None:

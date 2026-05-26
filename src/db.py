@@ -96,10 +96,13 @@ def save_recipe(data: dict[str, Any]) -> dict[str, Any] | None:
         _tips_sample = json.dumps(
             (data.get("tips") or [])[:2], ensure_ascii=False
         )
+        _extra_info_sample = json.dumps(
+            data.get("extra_info"), ensure_ascii=False
+        )
         logger.info(
             "[db] INSERT 직전 인코딩 확인 video_id='%s' | "
-            "ingredients(앞2): %s | steps(앞1): %s | tips(앞2): %s",
-            video_id, _ingr_sample, _steps_sample, _tips_sample,
+            "ingredients(앞2): %s | steps(앞1): %s | tips(앞2): %s | extra_info: %s",
+            video_id, _ingr_sample, _steps_sample, _tips_sample, _extra_info_sample,
         )
     except Exception as _log_exc:
         logger.warning("[db] 진단 로그 출력 실패: %s", _log_exc)

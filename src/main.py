@@ -50,6 +50,7 @@ app.add_middleware(
 class CollectRequest(BaseModel):
     """POST /api/collect 요청 바디"""
     input_text: str  # 키워드, 채널명, 채널 URL, 영상 URL 중 하나
+    context: str | None = None  # 사용자 특이사항 (채널 성격, 추출 방향 등)
 
 
 class RecipeSaveRequest(BaseModel):
@@ -66,6 +67,8 @@ class RecipeSaveRequest(BaseModel):
     plating: str | None = None
     tips: list[str] = []
     incomplete_ingredients: bool = False
+    extra_info: dict[str, Any] | None = None    # AI가 맥락 기반으로 추출한 부가 정보
+    user_context: str | None = None             # 사용자가 입력한 특이사항 원문
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +121,7 @@ def collect(req: CollectRequest) -> dict[str, Any]:
 
     # 파이프라인 실행
     try:
-        results = pipeline.run_pipeline(video_ids)
+        results = pipeline.run_pipeline(video_ids, context=req.context)
     except Exception as exc:
         logger.error("[/api/collect] 파이프라인 오류: %s", exc)
         raise HTTPException(status_code=500, detail=f"파이프라인 오류: {exc}")
@@ -147,6 +150,8 @@ def create_recipe(req: RecipeSaveRequest) -> dict[str, Any]:
         "tips": req.tips,
         "source_method": req.source_method,
         "incomplete_ingredients": req.incomplete_ingredients,
+        "extra_info": req.extra_info,
+        "user_context": req.user_context,
     }
 
     saved = db.save_recipe(data)
