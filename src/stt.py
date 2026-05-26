@@ -26,6 +26,8 @@ import yt_dlp
 from dotenv import load_dotenv
 from groq import Groq
 
+from .cookie_manager import get_cookie_path
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,12 @@ def _download_audio(video_id: str) -> str | None:
         "no_warnings": True,
         "noprogress": True,
     }
+
+    # YOUTUBE_COOKIES_B64 설정 시 쿠키 파일 주입 (Railway 클라우드 IP 차단 우회)
+    cookie_path = get_cookie_path()
+    if cookie_path:
+        ydl_opts["cookiefile"] = cookie_path
+        logger.info("[stt] 쿠키 파일 적용: %s", cookie_path)
 
     logger.info("[stt] 오디오 다운로드 시작: video_id='%s'", video_id)
     try:

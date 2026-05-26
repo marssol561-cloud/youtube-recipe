@@ -28,6 +28,8 @@ from youtube_transcript_api._errors import (
     VideoUnavailable,
 )
 
+from .cookie_manager import get_session
+
 logger = logging.getLogger(__name__)
 
 # 자동생성 자막 시도 언어 우선순위
@@ -46,7 +48,8 @@ def fetch_transcript(video_id: str) -> dict[str, Any]:
         실패: {"text": None, "source": None, "success": False, "needs_stt": True}
     """
     _fail = {"text": None, "source": None, "success": False, "needs_stt": True}
-    api = YouTubeTranscriptApi()
+    # YOUTUBE_COOKIES_B64 설정 시 쿠키 세션 주입 (Railway 클라우드 IP 차단 우회)
+    api = YouTubeTranscriptApi(http_client=get_session())
 
     try:
         transcript_list = api.list(video_id)
@@ -105,7 +108,7 @@ def fetch_transcript_with_timestamps(
     Returns:
         [{"text": str, "start": float, "duration": float}, ...] 또는 None
     """
-    api = YouTubeTranscriptApi()
+    api = YouTubeTranscriptApi(http_client=get_session())
     try:
         tl = api.list(video_id)
         try:
