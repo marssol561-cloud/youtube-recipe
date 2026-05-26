@@ -85,8 +85,11 @@ def get_session() -> requests.Session | None:
         jar = MozillaCookieJar()
         jar.load(str(_COOKIE_FILE), ignore_discard=True, ignore_expires=True)
         session = requests.Session()
-        session.cookies = jar  # type: ignore[assignment]
-        logger.info("[cookie_manager] requests.Session 쿠키 로드 완료")
+        # requests.Session.cookies는 RequestsCookieJar여야 쿠키가 실제로 전송됨
+        # MozillaCookieJar를 직접 대입하면 쿠키 전송이 안 됨 → update()로 복사
+        session.cookies.update(jar)
+        cookie_count = len(list(jar))
+        logger.info("[cookie_manager] requests.Session 쿠키 로드 완료: %d개", cookie_count)
         return session
     except Exception as exc:
         logger.error("[cookie_manager] Session 생성 실패: %s", exc)

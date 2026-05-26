@@ -101,7 +101,9 @@ def _download_audio(video_id: str) -> str | None:
     outtmpl = str(_TMP_DIR / f"{video_id}.%(ext)s")
 
     ydl_opts: dict[str, Any] = {
-        "format": "bestaudio/best",
+        # 쿠키 인증 환경에서 "bestaudio/best"는 포맷 불일치 오류 발생 가능
+        # 명시적 m4a(140) → webm(251) → 오디오only → 전체 최적으로 다단계 시도
+        "format": "140/251/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
         "outtmpl": outtmpl,
         "noplaylist": True,
         "quiet": True,
