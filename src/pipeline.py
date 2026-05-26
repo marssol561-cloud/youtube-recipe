@@ -1,9 +1,10 @@
 """
 전체 파이프라인 오케스트레이터 — 스프린트 4 확장
-4단 순차 보충 파이프라인:
+5단 순차 보충 파이프라인:
   1차: 영상 설명으로 레시피 추출
-  2차: 자막으로 레시피 추출 (자막 있는 경우)
-  3차: STT fallback (자막 없는 경우, 스프린트 4)
+  2차: youtube-transcript-api 자막 (자막 있는 경우)
+  2차-B: yt-dlp 자막 다운로드 (2차 실패 시, 스프린트 4)
+  3차: STT fallback (2차·2차-B 모두 실패 시, 스프린트 4)
   4차: 웹 검색 보충 (재료 분량 불완전 시, 스프린트 4)
 
 DB 저장: 하지 않음 (호출 측 결정)
@@ -80,11 +81,12 @@ def run_pipeline(video_ids: list[str]) -> list[dict[str, Any]]:
 
 def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
     """
-    4단 순차 파이프라인으로 단일 영상을 처리한다.
+    5단 순차 파이프라인으로 단일 영상을 처리한다.
 
     Step 1: 영상 메타데이터 + 설명 준비 (완료)
-    Step 2: 자막 추출 시도
-    Step 3: 자막 실패 → STT fallback
+    Step 2: youtube-transcript-api 자막 추출 시도
+    Step 2-B: yt-dlp 자막 다운로드 fallback (Step 2 실패 시)
+    Step 3: STT fallback (Step 2-B 도 실패 시)
     Step 4: incomplete_ingredients → 웹 검색 보충
     """
     video_id = meta["video_id"]
@@ -104,8 +106,8 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
         "error": None,
     }
 
-    # ── Step 2: 자막 추출 ────────────────────────────────────────────────
-    logger.info("[Pipeline] 영상 %s: 자막 추출 시도", video_id)
+    # ── Step 2: 자막 추출 (youtube-transcript-api) ───────────────────────
+    logger.info("[Pipeline] 영상 %s: 자막 추출 시도 (youtube-transcript-api)", video_id)
     trans_result = transcript.fetch_transcript(video_id)
     transcript_text: str | None = None
     source_method = "description"
@@ -115,23 +117,34 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
         source_method = "subtitle"
         logger.info("[Pipeline] 영상 %s: 자막 추출 성공 → 레시피 추출", video_id)
     else:
-        # ── Step 3: STT fallback ─────────────────────────────────────────
+        # ── Step 2-B: yt-dlp 자막 다운로드 fallback ─────────────────────
         logger.info(
-            "[Pipeline] 영상 %s: 자막 추출 실패 → STT 시도", video_id
+            "[Pipeline] 영상 %s: youtube-transcript-api 실패 → yt-dlp 자막 시도", video_id
         )
-        base_result["needs_stt"] = True
+        ytdlp_result = transcript.fetch_transcript_via_ytdlp(video_id)
 
-        stt_result = _run_stt_sync(video_id)
-        if stt_result.get("success"):
-            transcript_text = stt_result["text"]
-            source_method = "stt"
-            logger.info("[Pipeline] 영상 %s: STT 성공 → 레시피 추출", video_id)
+        if ytdlp_result["success"]:
+            transcript_text = ytdlp_result["text"]
+            source_method = "subtitle"
+            logger.info("[Pipeline] 영상 %s: yt-dlp 자막 성공 → 레시피 추출", video_id)
         else:
-            source_method = "description"
+            # ── Step 3: STT fallback ─────────────────────────────────────
             logger.info(
-                "[Pipeline] 영상 %s: STT 실패 → 영상 설명만으로 추출 시도 | 사유: %s",
-                video_id, stt_result.get("error", "알 수 없음"),
+                "[Pipeline] 영상 %s: yt-dlp 자막 실패 → STT 시도", video_id
             )
+            base_result["needs_stt"] = True
+
+            stt_result = _run_stt_sync(video_id)
+            if stt_result.get("success"):
+                transcript_text = stt_result["text"]
+                source_method = "stt"
+                logger.info("[Pipeline] 영상 %s: STT 성공 → 레시피 추출", video_id)
+            else:
+                source_method = "description"
+                logger.info(
+                    "[Pipeline] 영상 %s: STT 실패 → 영상 설명만으로 추출 시도 | 사유: %s",
+                    video_id, stt_result.get("error", "알 수 없음"),
+                )
 
     base_result["source_method"] = source_method
 
