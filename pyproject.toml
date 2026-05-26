@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-recipe"
+version = "0.1.0"
+description = "유튜브 요리 영상에서 레시피를 자동 수집·추출하는 도구"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.111.0",
+  "uvicorn[standard]>=0.29.0",
+  "supabase>=2.4.0",
+  "anthropic>=0.25.0",
+  "youtube-transcript-api>=0.6.2",
+  "groq>=0.9.0",
+  "yt-dlp>=2024.4.9",
+  "duckduckgo-search>=6.0.0",
+  "python-dotenv>=1.0.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+  "httpx>=0.27.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

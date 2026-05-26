@@ -1,0 +1,13 @@
+{
+  "category": "recipe",
+  "name": "특별한 음식 레시피와 조리법",
+  "keywords": ["셰프 레시피", "특별한 요리", "레시피 비법"],
+  "whitelist_path": "../whitelist.json",
+  "filter": {
+    "min_duration_seconds": 300,
+    "general_min_subscribers": 100000,
+    "general_min_views": 1000000,
+    "recent_months": 6,
+    "recent_min_views": 300000
+  }
+}

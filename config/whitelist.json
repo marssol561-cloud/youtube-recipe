@@ -1,0 +1,11 @@
+{
+  "description": "유명 셰프 채널 화이트리스트 — 채널 ID 기준 우선 수집 (트랙 1)",
+  "channels": [
+    {
+      "channel_id": "UCl_tB4AqPkkxuYcJQHz6dMw",
+      "channel_name": "여경래",
+      "chef_name": "여경래",
+      "note": "EBS 최고의 요리비결"
+    }
+  ]
+}
