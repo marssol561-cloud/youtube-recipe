@@ -224,16 +224,36 @@ def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
         "[transcript_ytdlp] 자막 URL 발견 (ext=%s): video_id='%s'", sub_ext, video_id
     )
 
-    # ── requests.Session 으로 자막 파일 직접 다운로드 ────────────────────
+    # ── requests.Session 으로 자막 파일 직접 다운로드 (429 재시도 포함) ──
     # get_session() 은 쿠키 미설정 시 None 반환 → 기본 Session 사용
+    import time as _time
     session = get_session() or req_lib.Session()
-    try:
-        resp = session.get(sub_url, timeout=30)
-        resp.raise_for_status()
-        content = resp.text
-    except Exception as exc:
+    content: str | None = None
+    for attempt in range(1, 4):  # 최대 3회 시도
+        try:
+            resp = session.get(sub_url, timeout=30)
+            if resp.status_code == 429:
+                wait_s = attempt * 2  # 2s → 4s → 6s
+                logger.info(
+                    "[transcript_ytdlp] 429 Too Many Requests - %d초 후 재시도 (시도 %d/3)",
+                    wait_s, attempt,
+                )
+                _time.sleep(wait_s)
+                continue
+            resp.raise_for_status()
+            content = resp.text
+            break
+        except Exception as exc:
+            logger.warning(
+                "[transcript_ytdlp] 자막 파일 다운로드 실패 (시도 %d/3): video_id='%s' | %s",
+                attempt, video_id, exc,
+            )
+            if attempt < 3:
+                _time.sleep(2)
+
+    if not content:
         logger.warning(
-            "[transcript_ytdlp] 자막 파일 다운로드 실패: video_id='%s' | %s", video_id, exc
+            "[transcript_ytdlp] 자막 다운로드 최종 실패: video_id='%s'", video_id
         )
         return _fail
 
