@@ -172,21 +172,48 @@ def _process_video(meta: dict[str, Any]) -> dict[str, Any]:
     # ── Step 4: 웹 검색 보충 ─────────────────────────────────────────────
     if recipe.get("incomplete_ingredients"):
         dish_name = recipe.get("dish_name", title)
+
+        # ① source_method 저장: 웹 검색 보충은 재료 분량 후처리이므로
+        #    최초 텍스트 확보 방법(source_method)을 변경하면 안 된다.
+        #    search_supplement가 recipe dict에 source_method를 추가하더라도
+        #    원래 값으로 복원하기 위해 미리 저장한다.
+        _saved_source_method = source_method
         logger.info(
-            "[Pipeline] 영상 %s: incomplete_ingredients=True → 웹 검색 보충 시작 | dish='%s'",
-            video_id, dish_name,
+            "[Pipeline] 영상 %s: incomplete_ingredients=True → 웹 검색 보충 시작 | "
+            "dish='%s' | source_method 저장='%s'",
+            video_id, dish_name, _saved_source_method,
         )
+
         recipe = search_supplement.supplement_ingredients(
             recipe=recipe,
             dish_name=dish_name,
             video_id=video_id,
         )
-        # source_method는 최초 텍스트 확보 방법을 기록하는 필드이므로
-        # 웹 검색 보충 성공 여부와 관계없이 변경하지 않는다
+
+        # ② source_method 복원:
+        #    search_supplement가 recipe dict에 source_method 필드를 추가했을 경우 제거.
+        #    (search_supplement v2에서 이미 방어하지만 이중 방어)
+        _leaked_sm = recipe.pop("source_method", None)
+        if _leaked_sm is not None:
+            logger.warning(
+                "[Pipeline] 영상 %s: recipe에 source_method='%s' 필드 누출 감지 — 제거 완료",
+                video_id, _leaked_sm,
+            )
+
+        # base_result의 source_method를 보충 전 원래 값으로 명시적 복원
+        source_method = _saved_source_method
+        base_result["source_method"] = source_method
+
         if not recipe.get("incomplete_ingredients"):
-            logger.info("[Pipeline] 영상 %s: 웹 검색 보충 완료 (분량 보충됨) | source_method=%s 유지", video_id, base_result["source_method"])
+            logger.info(
+                "[Pipeline] 영상 %s: 웹 검색 보충 완료 | source_method='%s' 복원",
+                video_id, source_method,
+            )
         else:
-            logger.info("[Pipeline] 영상 %s: 웹 검색 보충 후에도 incomplete 유지", video_id)
+            logger.info(
+                "[Pipeline] 영상 %s: 웹 검색 보충 후에도 incomplete 유지 | source_method='%s' 복원",
+                video_id, source_method,
+            )
     else:
         logger.info("[Pipeline] 영상 %s: 재료 분량 완전 → 웹 검색 보충 불필요", video_id)
 

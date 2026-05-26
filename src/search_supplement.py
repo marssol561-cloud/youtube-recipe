@@ -90,11 +90,39 @@ def supplement_ingredients(
         )
         return recipe
 
+    # ── Step 3: ingredients/incomplete_ingredients만 병합 ────────────────
+    # 기존 recipe 전체를 Claude 응답으로 교체하지 않는다.
+    # 이유:
+    #   1) Claude가 steps/plating/tips를 임의로 변경할 수 있음
+    #   2) Claude가 source_method 등 스키마에 없는 필드를 추가할 수 있음
+    #      → 프론트엔드가 recipe.source_method를 잘못 읽는 버그 방지
+    # 재료 분량 보충의 목적에 맞게 ingredients, incomplete_ingredients만 업데이트한다.
+    merged = dict(recipe)  # 원본 얕은 복사 (steps/plating/tips 등 유지)
+    if "ingredients" in supplemented:
+        merged["ingredients"] = supplemented["ingredients"]
+        logger.info(
+            "[search_supplement] ingredients 병합 완료: video_id='%s' "
+            "재료 수=%d",
+            video_id, len(supplemented["ingredients"]),
+        )
+    if "incomplete_ingredients" in supplemented:
+        merged["incomplete_ingredients"] = supplemented["incomplete_ingredients"]
+
+    # source_method 등 허용되지 않은 필드는 병합 대상에서 제외
+    _allowed_keys = {"dish_name", "ingredients", "steps", "plating", "tips", "incomplete_ingredients"}
+    _extra_keys = set(merged.keys()) - _allowed_keys
+    for _key in _extra_keys:
+        logger.warning(
+            "[search_supplement] recipe에 허용되지 않은 필드 제거: key='%s' video_id='%s'",
+            _key, video_id,
+        )
+        merged.pop(_key, None)
+
     logger.info(
-        "[search_supplement] 보충 완료: video_id='%s' incomplete=%s",
-        video_id, supplemented.get("incomplete_ingredients")
+        "[search_supplement] 보충 완료 (ingredients 병합): video_id='%s' incomplete=%s",
+        video_id, merged.get("incomplete_ingredients"),
     )
-    return supplemented
+    return merged
 
 
 # ---------------------------------------------------------------------------

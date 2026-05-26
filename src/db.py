@@ -18,6 +18,7 @@ Supabase 클라이언트 초기화 + CRUD 본문 구현
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -81,6 +82,27 @@ def save_recipe(data: dict[str, Any]) -> dict[str, Any] | None:
                 return existing.data[0]
         except Exception as exc:
             logger.warning("[db] 중복 확인 조회 실패: %s", exc)
+
+    # ── 진단 로그: INSERT 직전 한글 데이터 인코딩 확인 ──────────────────────
+    # 이 로그가 정상 한글을 출력하면 → Python 레벨은 정상, supabase-py 직렬화 문제
+    # 이 로그에서 이미 깨져 있으면 → 상위 파이프라인(extractor/search_supplement) 문제
+    try:
+        _ingr_sample = json.dumps(
+            (data.get("ingredients") or [])[:2], ensure_ascii=False
+        )
+        _steps_sample = json.dumps(
+            (data.get("steps") or [])[:1], ensure_ascii=False
+        )
+        _tips_sample = json.dumps(
+            (data.get("tips") or [])[:2], ensure_ascii=False
+        )
+        logger.info(
+            "[db] INSERT 직전 인코딩 확인 video_id='%s' | "
+            "ingredients(앞2): %s | steps(앞1): %s | tips(앞2): %s",
+            video_id, _ingr_sample, _steps_sample, _tips_sample,
+        )
+    except Exception as _log_exc:
+        logger.warning("[db] 진단 로그 출력 실패: %s", _log_exc)
 
     # INSERT
     try:
