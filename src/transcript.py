@@ -141,12 +141,14 @@ def fetch_transcript_with_timestamps(
 
 def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
     """
-    yt-dlp extract_info(download=False) 로 자막 URL을 추출한 뒤
+    yt-dlp extract_info(download=False, process=False) 로 자막 URL을 추출한 뒤
     requests.Session(쿠키)으로 직접 다운로드하여 텍스트 반환.
 
-    skip_download=True 방식은 내부 format 검증 단계에서
-    Railway IP가 "Requested format is not available" 오류를 내므로
-    extract_info(download=False) → URL 직접 다운로드로 우회한다.
+    extract_info(download=False)는 내부적으로 process_ie_result를 통해
+    format selection을 수행하며, Railway IP에서 포맷 목록이 제한되어
+    "Requested format is not available" 오류를 낸다.
+    process=False 로 format selection 단계를 완전히 건너뛰고
+    raw 영상 info(subtitles/automatic_captions URL 포함)만 추출한다.
 
     Args:
         video_id: 유튜브 영상 ID (11자)
@@ -175,9 +177,13 @@ def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
 
     logger.info("[transcript_ytdlp] 영상 정보 추출 시작: video_id='%s'", video_id)
 
+    # process=False: format 선택(=process_ie_result) 단계를 완전히 건너뛴다.
+    # extract_info(download=False) 는 내부적으로 process_ie_result 를 통해
+    # format selection을 수행하며, Railway IP에서 "Requested format is not available"
+    # 오류를 발생시킨다. process=False 는 이 단계를 skip 하고 raw 정보만 반환.
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(url, download=False, process=False)
     except Exception as exc:
         logger.warning("[transcript_ytdlp] 정보 추출 실패: video_id='%s' | %s", video_id, exc)
         return _fail
