@@ -27,11 +27,8 @@ needs_stt: True — 스프린트 4 STT fallback 트리거 플래그
 
 from __future__ import annotations
 
-import glob
 import json
 import logging
-import os
-import pathlib
 import re
 from typing import Any
 
@@ -44,9 +41,6 @@ from youtube_transcript_api._errors import (
 )
 
 from .cookie_manager import get_cookie_path, get_session
-
-# yt-dlp 자막 임시 파일 디렉토리 (stt.py 와 동일 경로)
-_TMP_DIR = pathlib.Path(__file__).parent.parent / "tmp"
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +141,12 @@ def fetch_transcript_with_timestamps(
 
 def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
     """
-    yt-dlp로 자막 파일(.json3 또는 .vtt)을 다운로드하여 텍스트 추출.
+    yt-dlp extract_info(download=False) 로 자막 URL을 추출한 뒤
+    requests.Session(쿠키)으로 직접 다운로드하여 텍스트 반환.
 
-    youtube-transcript-api가 Railway IP 차단으로 실패한 경우 2차 시도.
-    오디오 다운로드보다 가벼운 요청 — 자막 CDN URL은 별도 제한.
+    skip_download=True 방식은 내부 format 검증 단계에서
+    Railway IP가 "Requested format is not available" 오류를 내므로
+    extract_info(download=False) → URL 직접 다운로드로 우회한다.
 
     Args:
         video_id: 유튜브 영상 ID (11자)
@@ -159,23 +155,17 @@ def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
         성공: {"text": str, "source": "subtitle", "success": True, "needs_stt": False}
         실패: {"text": None, "source": None, "success": False, "needs_stt": True}
     """
-    _fail: dict[str, Any] = {"text": None, "source": None, "success": False, "needs_stt": True}
-    _TMP_DIR.mkdir(exist_ok=True)
+    import requests as req_lib
 
-    prefix = f"ytdlp_sub_{video_id}"
-    outtmpl = str(_TMP_DIR / f"{prefix}.%(ext)s")
+    _fail: dict[str, Any] = {"text": None, "source": None, "success": False, "needs_stt": True}
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
 
     ydl_opts: dict[str, Any] = {
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "subtitleslangs": ["ko"],
-        "subtitlesformat": "json3/vtt",
-        "skip_download": True,
-        "outtmpl": outtmpl,
         "quiet": True,
         "no_warnings": True,
-        "noprogress": True,
         "noplaylist": True,
+        # format 검증 없이 info만 추출 — format 키 미지정 시 검증 건너뜀
     }
 
     cookie_path = get_cookie_path()
@@ -183,47 +173,70 @@ def fetch_transcript_via_ytdlp(video_id: str) -> dict[str, Any]:
         ydl_opts["cookiefile"] = cookie_path
         logger.info("[transcript_ytdlp] 쿠키 파일 적용: %s", cookie_path)
 
-    logger.info("[transcript_ytdlp] 자막 다운로드 시작: video_id='%s'", video_id)
+    logger.info("[transcript_ytdlp] 영상 정보 추출 시작: video_id='%s'", video_id)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
-    except yt_dlp.utils.DownloadError as exc:
-        logger.warning("[transcript_ytdlp] 다운로드 실패: video_id='%s' | %s", video_id, exc)
-        return _fail
+            info = ydl.extract_info(url, download=False)
     except Exception as exc:
-        logger.warning("[transcript_ytdlp] 예외: video_id='%s' | %s", video_id, exc)
+        logger.warning("[transcript_ytdlp] 정보 추출 실패: video_id='%s' | %s", video_id, exc)
         return _fail
 
-    # 다운로드된 자막 파일 탐색
-    pattern = str(_TMP_DIR / f"{prefix}.*")
-    files = glob.glob(pattern)
-    if not files:
-        logger.info("[transcript_ytdlp] 자막 파일 없음 (자막 미제공): video_id='%s'", video_id)
+    if info is None:
+        logger.warning("[transcript_ytdlp] 정보 없음: video_id='%s'", video_id)
         return _fail
 
+    # ── 자막 URL 탐색 (수동 자막 우선 → 자동생성) ───────────────────────
+    sub_url: str | None = None
+    sub_ext: str | None = None
+
+    def _pick_url(tracks: dict[str, list[dict[str, Any]]]) -> tuple[str | None, str | None]:
+        for lang in ["ko"]:
+            if lang not in tracks:
+                continue
+            for ext_pref in ["json3", "vtt"]:
+                for entry in tracks[lang]:
+                    if entry.get("ext") == ext_pref and entry.get("url"):
+                        return entry["url"], ext_pref
+        return None, None
+
+    sub_url, sub_ext = _pick_url(info.get("subtitles", {}))
+    if sub_url is None:
+        sub_url, sub_ext = _pick_url(info.get("automatic_captions", {}))
+
+    if sub_url is None:
+        logger.info(
+            "[transcript_ytdlp] 한국어 자막 없음: video_id='%s' "
+            "(subtitles=%s, auto=%s)",
+            video_id,
+            list(info.get("subtitles", {}).keys()),
+            list(info.get("automatic_captions", {}).keys()),
+        )
+        return _fail
+
+    logger.info(
+        "[transcript_ytdlp] 자막 URL 발견 (ext=%s): video_id='%s'", sub_ext, video_id
+    )
+
+    # ── requests.Session 으로 자막 파일 직접 다운로드 ────────────────────
+    # get_session() 은 쿠키 미설정 시 None 반환 → 기본 Session 사용
+    session = get_session() or req_lib.Session()
+    try:
+        resp = session.get(sub_url, timeout=30)
+        resp.raise_for_status()
+        content = resp.text
+    except Exception as exc:
+        logger.warning(
+            "[transcript_ytdlp] 자막 파일 다운로드 실패: video_id='%s' | %s", video_id, exc
+        )
+        return _fail
+
+    # ── 파싱 ─────────────────────────────────────────────────────────────
     text: str | None = None
-    for f in sorted(files):  # json3 → vtt 순으로 정렬 시 json3 우선
-        try:
-            content = pathlib.Path(f).read_text(encoding="utf-8")
-            if f.endswith(".json3"):
-                text = _parse_json3_sub(content)
-            elif f.endswith(".vtt"):
-                text = _parse_vtt_sub(content)
-            if text:
-                logger.info(
-                    "[transcript_ytdlp] 자막 파싱 성공: %s (%d자)",
-                    pathlib.Path(f).name, len(text),
-                )
-                break
-        except Exception as exc:
-            logger.warning("[transcript_ytdlp] 파일 파싱 실패: %s | %s", f, exc)
-        finally:
-            try:
-                os.remove(f)
-                logger.debug("[transcript_ytdlp] 임시 파일 삭제: %s", f)
-            except OSError:
-                pass
+    if sub_ext == "json3":
+        text = _parse_json3_sub(content)
+    else:
+        text = _parse_vtt_sub(content)
 
     if not text:
         logger.info("[transcript_ytdlp] 자막 텍스트 비어 있음: video_id='%s'", video_id)
